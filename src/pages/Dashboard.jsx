@@ -2,11 +2,28 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 import StudentsTable from "../components/StudentsTable";
 import SeatLayout from "../components/SeatLayout";
+import { Line } from "react-chartjs-2";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Chart as ChartJS,
+  LineElement,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  Tooltip,
+  Legend,
+} from "chart.js";
+
+ChartJS.register(LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend);
 
 export default function Dashboard({ user, onLogout }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("1st Floor");
+  const [showReports, setShowReports] = useState(false);
+  const [filterFloor, setFilterFloor] = useState("All");
+
   const [newStudent, setNewStudent] = useState({
     name: "",
     phone: "",
@@ -17,13 +34,13 @@ export default function Dashboard({ user, onLogout }) {
     fees: "",
     paid: "",
     pending_amount: "",
+    payment_method: "",
     remarks: "",
     joining_date: "",
     allotted_date: "",
-    payment_method: "",
   });
 
-  // Fetch students
+  // Fetch all students
   async function fetchStudents() {
     const { data, error } = await supabase.from("students").select("*");
     if (error) console.error(error);
@@ -48,9 +65,9 @@ export default function Dashboard({ user, onLogout }) {
       fees,
       paid,
       remarks,
+      payment_method,
       joining_date,
       allotted_date,
-      payment_method,
     } = newStudent;
 
     const pending_amount = fees - paid;
@@ -62,27 +79,24 @@ export default function Dashboard({ user, onLogout }) {
         ).toISOString()
       : null;
 
-    const { data, error } = await supabase
-      .from("students")
-      .insert([
-        {
-          name,
-          phone,
-          floor,
-          seat_no,
-          package_months,
-          receipt_no,
-          fees,
-          paid,
-          pending_amount,
-          remarks,
-          joining_date,
-          allotted_date,
-          next_fees_date,
-          payment_method,
-        },
-      ])
-      .select();
+    const { error } = await supabase.from("students").insert([
+      {
+        name,
+        phone,
+        floor,
+        seat_no,
+        package_months,
+        receipt_no,
+        fees,
+        paid,
+        pending_amount,
+        remarks,
+        payment_method,
+        joining_date,
+        allotted_date,
+        next_fees_date,
+      },
+    ]);
 
     if (error) alert("❌ Error adding student: " + error.message);
     else {
@@ -97,16 +111,16 @@ export default function Dashboard({ user, onLogout }) {
         fees: "",
         paid: "",
         pending_amount: "",
+        payment_method: "",
         remarks: "",
         joining_date: "",
         allotted_date: "",
-        payment_method: "",
       });
       fetchStudents();
     }
   }
 
-  // Summary Calculations
+  // Dashboard Stats
   const totalStudents = students.length;
   const totalFees = students.reduce((a, b) => a + (Number(b.fees) || 0), 0);
   const totalPaid = students.reduce((a, b) => a + (Number(b.paid) || 0), 0);
@@ -123,6 +137,62 @@ export default function Dashboard({ user, onLogout }) {
   };
 
   const totalSeats = { floor1: 42, floor2: 15, cabin: 4 };
+
+  // Monthly Reports
+  const reportMonths = {};
+  students.forEach((s) => {
+    if (!s.joining_date) return;
+    const month = new Date(s.joining_date).toLocaleString("default", {
+      month: "short",
+      year: "numeric",
+    });
+    if (!reportMonths[month])
+      reportMonths[month] = { newStudents: 0, collected: 0, pending: 0 };
+    reportMonths[month].newStudents++;
+    reportMonths[month].collected += Number(s.paid || 0);
+    reportMonths[month].pending += Number(s.pending_amount || 0);
+  });
+
+  const reportData = Object.entries(reportMonths).map(([month, stats]) => ({
+    month,
+    ...stats,
+  }));
+
+  const chartData = {
+    labels: reportData.map((r) => r.month),
+    datasets: [
+      {
+        label: "Collected (₹)",
+        data: reportData.map((r) => r.collected),
+        borderColor: "#f97316",
+        backgroundColor: "#f97316",
+        tension: 0.3,
+      },
+      {
+        label: "Pending (₹)",
+        data: reportData.map((r) => r.pending),
+        borderColor: "#ef4444",
+        backgroundColor: "#ef4444",
+        tension: 0.3,
+      },
+    ],
+  };
+
+  const exportPDF = async () => {
+    const input = document.getElementById("reports-section");
+    const canvas = await html2canvas(input, { scale: 2 });
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+    const imgWidth = 190;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    pdf.addImage(imgData, "PNG", 10, 10, imgWidth, imgHeight);
+    pdf.save("monthly_report.pdf");
+  };
+
+  const filteredStudents =
+    filterFloor === "All"
+      ? students
+      : students.filter((s) => s.floor === filterFloor);
 
   if (loading)
     return (
@@ -148,43 +218,13 @@ export default function Dashboard({ user, onLogout }) {
         </button>
       </nav>
 
-      {/* Header */}
-      <div className="text-center mt-10">
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-2 tracking-tight">
-          Dashboard Overview
-        </h2>
-        <p className="text-gray-600">
-          Manage students, payments, and seat allocations in real-time.
-        </p>
-      </div>
-
-      {/* Summary Cards */}
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 p-8">
         {[
-          {
-            title: "Total Students",
-            value: totalStudents,
-            color: "from-orange-500 to-amber-400",
-            icon: "👥",
-          },
-          {
-            title: "Total Fees",
-            value: `₹${totalFees}`,
-            color: "from-yellow-400 to-orange-400",
-            icon: "💰",
-          },
-          {
-            title: "Total Paid",
-            value: `₹${totalPaid}`,
-            color: "from-green-400 to-emerald-500",
-            icon: "✅",
-          },
-          {
-            title: "Pending",
-            value: `₹${totalPending}`,
-            color: "from-red-400 to-rose-500",
-            icon: "⚠️",
-          },
+          { title: "Total Students", value: totalStudents, color: "from-orange-500 to-amber-400", icon: "👥" },
+          { title: "Total Fees", value: `₹${totalFees}`, color: "from-yellow-400 to-orange-400", icon: "💰" },
+          { title: "Total Paid", value: `₹${totalPaid}`, color: "from-green-400 to-emerald-500", icon: "✅" },
+          { title: "Pending", value: `₹${totalPending}`, color: "from-red-400 to-rose-500", icon: "⚠️" },
         ].map((item, i) => (
           <div
             key={i}
@@ -192,9 +232,7 @@ export default function Dashboard({ user, onLogout }) {
           >
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wider opacity-90">
-                  {item.title}
-                </h3>
+                <h3 className="text-sm font-semibold uppercase tracking-wider opacity-90">{item.title}</h3>
                 <p className="text-3xl font-bold">{item.value}</p>
               </div>
               <span className="text-4xl">{item.icon}</span>
@@ -203,50 +241,13 @@ export default function Dashboard({ user, onLogout }) {
         ))}
       </div>
 
-      {/* Floor Occupancy */}
-      <div className="px-8 mb-8">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">
-          Floor Occupancy
-        </h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          {["floor1", "floor2", "cabin"].map((floorKey, i) => (
-            <div
-              key={i}
-              className="bg-white rounded-xl shadow-lg p-6 hover:shadow-2xl transition-all duration-300"
-            >
-              <h3 className="text-lg font-semibold mb-2 capitalize text-gray-700">
-                {floorKey === "floor1"
-                  ? "1st Floor"
-                  : floorKey === "floor2"
-                  ? "2nd Floor"
-                  : "Cabin"}{" "}
-                ({occupiedSeats[floorKey]}/{totalSeats[floorKey]} occupied)
-              </h3>
-              <div className="h-3 w-full bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-700 ${
-                    occupiedSeats[floorKey] >= totalSeats[floorKey] * 0.8
-                      ? "bg-gradient-to-r from-red-500 to-orange-500"
-                      : "bg-gradient-to-r from-green-400 to-lime-400"
-                  }`}
-                  style={{
-                    width: `${
-                      (occupiedSeats[floorKey] / totalSeats[floorKey]) * 100
-                    }%`,
-                  }}
-                ></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Add New Student */}
+      {/* 🧾 Add New Student */}
       <div className="px-8 mb-12">
         <div className="bg-white rounded-2xl shadow-2xl p-8 hover:shadow-orange-100 transition-all duration-500">
           <h2 className="text-2xl font-semibold mb-6 text-gray-800 text-center">
             Add New Student
           </h2>
+
           <form
             onSubmit={addStudent}
             className="grid grid-cols-1 md:grid-cols-3 gap-6"
@@ -263,7 +264,7 @@ export default function Dashboard({ user, onLogout }) {
               { label: "Seat No", name: "seat_no", type: "text" },
               { label: "Receipt No", name: "receipt_no", type: "text" },
               {
-                label: "Package (Months)",
+                label: "Select Package (Months)",
                 name: "package_months",
                 type: "number",
               },
@@ -278,26 +279,26 @@ export default function Dashboard({ user, onLogout }) {
               { label: "Remarks", name: "remarks", type: "text" },
               { label: "Payment Date", name: "joining_date", type: "date" },
               { label: "Allotted Date", name: "allotted_date", type: "date" },
-            ].map((f, i) => (
+            ].map((field, i) => (
               <div key={i} className="flex flex-col">
                 <label className="text-sm font-semibold text-gray-600 mb-1">
-                  {f.label}
+                  {field.label}
                 </label>
-                {f.type === "select" ? (
+                {field.type === "select" ? (
                   <select
                     required
-                    name={f.name}
-                    value={newStudent[f.name]}
+                    name={field.name}
+                    value={newStudent[field.name]}
                     onChange={(e) =>
                       setNewStudent({
                         ...newStudent,
-                        [f.name]: e.target.value,
+                        [field.name]: e.target.value,
                       })
                     }
-                    className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-400"
                   >
                     <option value="">Select</option>
-                    {f.options.map((opt) => (
+                    {field.options.map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}
                       </option>
@@ -306,16 +307,16 @@ export default function Dashboard({ user, onLogout }) {
                 ) : (
                   <input
                     required
-                    type={f.type}
-                    name={f.name}
-                    value={newStudent[f.name]}
+                    type={field.type}
+                    name={field.name}
+                    value={newStudent[field.name]}
                     onChange={(e) =>
                       setNewStudent({
                         ...newStudent,
-                        [f.name]: e.target.value,
+                        [field.name]: e.target.value,
                       })
                     }
-                    className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-400"
                   />
                 )}
               </div>
@@ -324,7 +325,7 @@ export default function Dashboard({ user, onLogout }) {
             <div className="col-span-full flex justify-center mt-6">
               <button
                 type="submit"
-                className="bg-gradient-to-r from-orange-500 to-yellow-400 text-white px-10 py-3 rounded-full font-semibold shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-300"
+                className="bg-gradient-to-r from-orange-500 to-yellow-400 text-white px-10 py-3 rounded-full font-semibold shadow-md hover:scale-105 transition-all duration-300"
               >
                 Add Student
               </button>
@@ -333,53 +334,100 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* Seat Layout */}
-      <div className="px-8 mb-12 animate-fadeIn">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">
-          Seat Layout – {activeTab}
-        </h2>
-        <SeatLayout
-          key={activeTab}
-          students={students.filter((s) => s.floor === activeTab)}
-          floor={activeTab}
-          refreshData={fetchStudents}
-        />
-      </div>
-
-      {/* Students Table */}
+      {/* 🪑 Seat Layout */}
       <div className="px-8 mb-12">
-        <h2 className="text-2xl font-bold mb-6 text-gray-800">
-          Student Records
-        </h2>
-        <div className="bg-white rounded-2xl shadow-xl">
-          <div className="flex justify-center md:justify-start border-b border-gray-200 bg-gradient-to-r from-orange-100 to-yellow-50 rounded-t-2xl">
-            {["1st Floor", "2nd Floor", "Cabin"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-6 py-3 font-semibold transition-all duration-300 flex items-center gap-2 ${
-                  activeTab === tab
-                    ? "text-orange-600 border-b-4 border-orange-500 bg-gradient-to-r from-yellow-100 to-orange-50"
-                    : "text-gray-500 hover:text-orange-600"
-                }`}
-              >
-                {tab}
-                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded-full">
-                  {students.filter((s) => s.floor === tab).length}
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="p-6 transition-all duration-300 animate-fadeIn">
-            <StudentsTable
-              refreshData={fetchStudents}
-              students={students.filter((s) => s.floor === activeTab)}
-            />
-          </div>
-        </div>
+        <SeatLayout students={students} />
       </div>
 
-      {/* Upcoming Payments */}
+      {/* 🧍‍♂️ Floor Tabs */}
+      <div className="flex justify-center mb-6 gap-3">
+        {["All", "1st Floor", "2nd Floor", "Cabin"].map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilterFloor(f)}
+            className={`px-5 py-2 rounded-full font-semibold transition-all ${
+              filterFloor === f
+                ? "bg-gradient-to-r from-orange-500 to-yellow-400 text-white shadow-md"
+                : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {/* 🧾 Students Table */}
+      <div className="px-8 mb-12">
+        <StudentsTable students={filteredStudents} refreshData={fetchStudents} />
+      </div>
+
+      {/* 📊 Reports */}
+      <div className="flex justify-center mb-10">
+        <button
+          onClick={() => setShowReports(!showReports)}
+          className="bg-gradient-to-r from-orange-500 to-yellow-400 text-white px-10 py-3 rounded-full font-semibold shadow-lg hover:scale-105 transition-all duration-300"
+        >
+          {showReports ? "Hide Reports 📉" : "View Reports 📈"}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showReports && (
+          <motion.div
+            id="reports-section"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+            className="px-8 mb-12"
+          >
+            <div className="bg-white rounded-2xl shadow-2xl p-8">
+              <h2 className="text-2xl font-bold mb-4 text-gray-800">
+                Monthly Reports
+              </h2>
+              <div className="w-full h-[350px] mb-8">
+                <Line data={chartData} options={{ responsive: true }} />
+              </div>
+
+              <table className="min-w-full border border-gray-200 rounded-lg text-sm">
+                <thead className="bg-gradient-to-r from-orange-500 to-yellow-400 text-white">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Month</th>
+                    <th className="px-4 py-2 text-left">New Students</th>
+                    <th className="px-4 py-2 text-left">Collected (₹)</th>
+                    <th className="px-4 py-2 text-left">Pending (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.map((r, i) => (
+                    <tr key={i} className="border-t hover:bg-orange-50 transition">
+                      <td className="px-4 py-2 font-medium">{r.month}</td>
+                      <td className="px-4 py-2">{r.newStudents}</td>
+                      <td className="px-4 py-2 text-green-600 font-semibold">
+                        ₹{r.collected}
+                      </td>
+                      <td className="px-4 py-2 text-red-600 font-semibold">
+                        ₹{r.pending}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={exportPDF}
+                  className="bg-gradient-to-r from-orange-500 to-yellow-400 text-white px-6 py-2 rounded-full shadow-md hover:scale-105 transition-all duration-300"
+                >
+                  ⬇️ Download PDF
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 📅 Upcoming Payments */}
       <div className="px-8 mb-16">
         <h2 className="text-2xl font-bold mb-4 text-gray-800">
           Upcoming Payments
@@ -402,7 +450,6 @@ export default function Dashboard({ user, onLogout }) {
                 const diffDays = Math.ceil(
                   (dueDate - today) / (1000 * 60 * 60 * 24)
                 );
-
                 return (
                   <tr
                     key={s.id}
@@ -435,9 +482,13 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* Footer */}
+      {/* ⚙️ Footer */}
       <footer className="bg-gray-900 text-gray-300 text-center py-4 text-sm">
-        © {new Date().getFullYear()} Sri Spardha Academy. All rights reserved.
+        © {new Date().getFullYear()}{" "}
+        <span className="text-orange-400 font-semibold">
+          Novamind Automation | Sofware | Digital Solutions
+        </span>
+        . All rights reserved.
       </footer>
     </div>
   );
