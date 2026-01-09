@@ -2,183 +2,229 @@ import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 export default function AddStudent({ refreshData }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [floor, setFloor] = useState("");
-  const [seatNo, setSeatNo] = useState("");
-  const [months, setMonths] = useState(1);
-  const [fees, setFees] = useState("");
-  const [paid, setPaid] = useState("");
-  const [nextPayment, setNextPayment] = useState("");
+  const [formData, setFormData] = useState({
+    name: "",
+    phone: "",
+    floor: "",
+    seat_no: "",
+    receipt_no: "",
+    package_months: 1,
+    fees: "",
+    paid: "",
+    joining_date: "",
+    allotted_date: "",
+    remarks: "",
+  });
 
-  // Automatically calculate next payment date
-  const calculateNextPayment = (months) => {
-    const today = new Date();
-    today.setMonth(today.getMonth() + Number(months));
-    return today.toISOString().split("T")[0];
+  const [loading, setLoading] = useState(false);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
-    const pending = fees - paid;
-    const next_date = calculateNextPayment(months);
-
-    const { error } = await supabase.from("students").insert([
-      {
+    try {
+      const {
         name,
         phone,
         floor,
-        seat_no: seatNo,
-        months,
+        seat_no,
+        receipt_no,
+        package_months,
         fees,
         paid,
-        pending_amount: pending,
-        next_payment_date: next_date,
-      },
-    ]);
+        joining_date,
+        allotted_date,
+        remarks,
+      } = formData;
 
-    if (error) {
+      if (!name || !phone || !floor || !fees) {
+        alert("⚠️ Please fill all required fields!");
+        setLoading(false);
+        return;
+      }
+
+      const joinDate = joining_date ? new Date(joining_date) : new Date();
+      const allottedDate = allotted_date
+        ? new Date(allotted_date)
+        : new Date(joinDate);
+      const nextPayment = new Date(allottedDate);
+      nextPayment.setMonth(allottedDate.getMonth() + parseInt(package_months));
+
+      const pending = Number(fees) - Number(paid || 0);
+
+      const { error } = await supabase.from("students").insert([
+        {
+          name,
+          phone,
+          floor,
+          seat_no,
+          receipt_no,
+          package_months: parseInt(package_months),
+          fees: Number(fees),
+          paid: Number(paid || 0),
+          pending_amount: pending,
+          joining_date: joinDate.toISOString(),
+          allotted_date: allottedDate.toISOString(),
+          next_payment: nextPayment.toISOString(),
+          remarks,
+        },
+      ]);
+
+      if (error) throw error;
+
+      alert("✅ Student added successfully!");
+      setFormData({
+        name: "",
+        phone: "",
+        floor: "",
+        seat_no: "",
+        receipt_no: "",
+        package_months: 1,
+        fees: "",
+        paid: "",
+        joining_date: "",
+        allotted_date: "",
+        remarks: "",
+      });
+
+      refreshData && refreshData();
+    } catch (error) {
       alert("Error adding student: " + error.message);
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    alert("✅ Student added successfully!");
-    refreshData();
-
-    // Reset
-    setName("");
-    setPhone("");
-    setFloor("");
-    setSeatNo("");
-    setMonths(1);
-    setFees("");
-    setPaid("");
-    setNextPayment("");
   };
 
   return (
-    <div className="bg-white p-6 rounded-xl shadow-sm mb-8">
-      <h2 className="text-2xl font-semibold text-gray-800 mb-6">
+    <div className="bg-white shadow-md rounded-lg p-6 mt-8">
+      <h2 className="text-2xl font-semibold text-gray-800 mb-4">
         Add New Student
       </h2>
 
-      <form onSubmit={handleSubmit} className="grid md:grid-cols-3 gap-6">
-        {/* Full Name */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">Full Name</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full p-3 border rounded-md"
-            placeholder="Enter name"
-            required
-          />
-        </div>
+      <form
+        onSubmit={handleSubmit}
+        className="grid grid-cols-1 md:grid-cols-3 gap-4"
+      >
+        <input
+          type="text"
+          name="name"
+          placeholder="Full Name"
+          value={formData.name}
+          onChange={handleChange}
+          className="border rounded p-2"
+          required
+        />
+        <input
+          type="text"
+          name="phone"
+          placeholder="Phone Number"
+          value={formData.phone}
+          onChange={handleChange}
+          className="border rounded p-2"
+        />
+        <select
+          name="floor"
+          value={formData.floor}
+          onChange={handleChange}
+          className="border rounded p-2"
+          required
+        >
+          <option value="">Select Floor</option>
+          <option value="1st Floor">1st Floor</option>
+          <option value="2nd Floor">2nd Floor</option>
+        </select>
 
-        {/* Phone */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">
-            Phone Number
-          </label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full p-3 border rounded-md"
-            placeholder="Enter phone"
-            required
-          />
-        </div>
+        <input
+          type="text"
+          name="seat_no"
+          placeholder="Seat No (e.g., F1 or S10)"
+          value={formData.seat_no}
+          onChange={handleChange}
+          className="border rounded p-2"
+        />
 
-        {/* Floor */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">Select Floor</label>
-          <select
-            value={floor}
-            onChange={(e) => setFloor(e.target.value)}
-            className="w-full p-3 border rounded-md"
-            required
-          >
-            <option value="">Select Floor</option>
-            <option value="1st Floor">1st Floor</option>
-            <option value="2nd Floor">2nd Floor</option>
-          </select>
-        </div>
+        <input
+          type="text"
+          name="receipt_no"
+          placeholder="Receipt No"
+          value={formData.receipt_no}
+          onChange={handleChange}
+          className="border rounded p-2"
+        />
 
-        {/* Seat Number */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">Seat No</label>
-          <input
-            value={seatNo}
-            onChange={(e) => setSeatNo(e.target.value)}
-            className="w-full p-3 border rounded-md"
-            placeholder="e.g. F1 or S10"
-            required
-          />
-        </div>
+        <select
+          name="package_months"
+          value={formData.package_months}
+          onChange={handleChange}
+          className="border rounded p-2"
+        >
+          <option value={1}>1 Month</option>
+          <option value={2}>2 Months</option>
+          <option value={3}>3 Months</option>
+          <option value={6}>6 Months</option>
+          <option value={12}>12 Months</option>
+        </select>
 
-        {/* Package Duration */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">Package</label>
-          <select
-            value={months}
-            onChange={(e) => setMonths(e.target.value)}
-            className="w-full p-3 border rounded-md"
-          >
-            <option value={1}>1 Month</option>
-            <option value={2}>2 Months</option>
-            <option value={3}>3 Months</option>
-            <option value={6}>6 Months</option>
-          </select>
-        </div>
+        <input
+          type="number"
+          name="fees"
+          placeholder="Total Fees (₹)"
+          value={formData.fees}
+          onChange={handleChange}
+          className="border rounded p-2"
+          required
+        />
 
-        {/* Fees */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">Total Fees (₹)</label>
-          <input
-            type="number"
-            value={fees}
-            onChange={(e) => setFees(e.target.value)}
-            className="w-full p-3 border rounded-md"
-            required
-          />
-        </div>
+        <input
+          type="number"
+          name="paid"
+          placeholder="Paid (₹)"
+          value={formData.paid}
+          onChange={handleChange}
+          className="border rounded p-2"
+        />
 
-        {/* Paid */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">Paid (₹)</label>
-          <input
-            type="number"
-            value={paid}
-            onChange={(e) => setPaid(e.target.value)}
-            className="w-full p-3 border rounded-md"
-            required
-          />
-        </div>
+        <input
+          type="date"
+          name="joining_date"
+          value={formData.joining_date}
+          onChange={handleChange}
+          className="border rounded p-2"
+        />
 
-        {/* Next Payment Date */}
-        <div>
-          <label className="block text-sm text-gray-600 mb-2">
-            Next Payment Date
-          </label>
-          <input
-            type="date"
-            value={nextPayment || calculateNextPayment(months)}
-            onChange={(e) => setNextPayment(e.target.value)}
-            className="w-full p-3 border rounded-md"
-          />
-        </div>
+        <input
+          type="date"
+          name="allotted_date"
+          value={formData.allotted_date}
+          onChange={handleChange}
+          className="border rounded p-2"
+        />
 
-        {/* Submit */}
-        <div className="flex items-end">
-          <button
-            type="submit"
-            className="bg-purple-600 text-white px-6 py-3 rounded-md hover:bg-purple-700 transition"
-          >
-            + Add Student
-          </button>
-        </div>
+        <input
+          type="text"
+          name="remarks"
+          placeholder="Remarks (optional)"
+          value={formData.remarks}
+          onChange={handleChange}
+          className="border rounded p-2 md:col-span-2"
+        />
+
+        <button
+          type="submit"
+          disabled={loading}
+          className={`bg-purple-600 text-white font-medium py-2 rounded hover:bg-purple-700 transition ${
+            loading ? "opacity-70 cursor-not-allowed" : ""
+          }`}
+        >
+          {loading ? "Adding..." : "+ Add Student"}
+        </button>
       </form>
     </div>
   );
 }
+

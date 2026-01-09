@@ -1,32 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function StudentsTable({ refreshData }) {
-  const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(false);
+export default function StudentsTable({ students, refreshData }) {
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({});
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [monthsPaid, setMonthsPaid] = useState(1);
 
-  // Fetch all students
-  async function fetchStudents() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("students")
-      .select("*")
-      .order("next_fees_date", { ascending: true });
-
-    if (error) console.error("Error fetching students:", error);
-    else setStudents(data || []);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    fetchStudents();
-  }, []);
-
-  // 🟢 Mark as Paid
+  // ✅ Mark as Paid
   async function handleMarkAsPaid(studentId) {
     const student = students.find((s) => s.id === studentId);
     if (!student) return;
@@ -47,12 +28,11 @@ export default function StudentsTable({ refreshData }) {
     else {
       alert(`✅ ${student.name}'s payment marked for ${months} month(s)!`);
       setSelectedStudent(null);
-      fetchStudents();
       refreshData && refreshData();
     }
   }
 
-  // ✏️ Edit logic
+  // ✏️ Edit Mode
   const handleEdit = (student) => {
     setEditingId(student.id);
     setFormData({ ...student });
@@ -60,12 +40,15 @@ export default function StudentsTable({ refreshData }) {
 
   const handleSave = async () => {
     const { id, ...updateData } = formData;
-    const { error } = await supabase.from("students").update(updateData).eq("id", id);
+    const { error } = await supabase
+      .from("students")
+      .update(updateData)
+      .eq("id", id);
+
     if (error) alert("Error updating: " + error.message);
     else {
       alert("✅ Updated successfully!");
       setEditingId(null);
-      fetchStudents();
       refreshData && refreshData();
     }
   };
@@ -82,21 +65,26 @@ export default function StudentsTable({ refreshData }) {
     if (error) alert(error.message);
     else {
       alert("🗑️ Deleted successfully!");
-      fetchStudents();
       refreshData && refreshData();
     }
   }
 
-  if (loading)
-    return <p className="text-center text-gray-600">Loading students...</p>;
+  if (!students?.length)
+    return (
+      <p className="text-center text-gray-500 italic mt-4">
+        No students found for this floor.
+      </p>
+    );
 
   return (
     <div className="bg-white rounded-xl shadow-md p-6 mt-6">
-      <h2 className="text-2xl font-semibold mb-4 text-gray-800">Students List</h2>
+      <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+        Students List
+      </h2>
 
       <div className="overflow-x-auto">
         <table className="min-w-full border border-gray-200 rounded-lg text-sm">
-          <thead className="bg-purple-600 text-white">
+          <thead className="bg-gradient-to-r from-orange-500 to-yellow-400 text-white">
             <tr>
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Floor</th>
@@ -104,32 +92,36 @@ export default function StudentsTable({ refreshData }) {
               <th className="px-3 py-2">Months</th>
               <th className="px-3 py-2">Fees</th>
               <th className="px-3 py-2">Paid</th>
+              <th className="px-3 py-2">Payment Method</th>
               <th className="px-3 py-2">Pending</th>
               <th className="px-3 py-2">Next Payment</th>
               <th className="px-3 py-2 text-center">Actions</th>
             </tr>
           </thead>
+
           <tbody>
             {students.map((student) => (
               <tr
                 key={student.id}
-                className="border-t hover:bg-gray-50 transition"
+                className="border-t hover:bg-orange-50 transition duration-200"
               >
                 {editingId === student.id ? (
                   <>
+                    {/* Editable Row */}
                     <td className="px-3 py-2">
                       <input
                         type="text"
-                        value={formData.name}
+                        value={formData.name || ""}
                         onChange={(e) =>
                           setFormData({ ...formData, name: e.target.value })
                         }
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="px-3 py-2">
                       <select
-                        value={formData.floor}
+                        value={formData.floor || ""}
                         onChange={(e) =>
                           setFormData({ ...formData, floor: e.target.value })
                         }
@@ -137,22 +129,25 @@ export default function StudentsTable({ refreshData }) {
                       >
                         <option value="1st Floor">1st Floor</option>
                         <option value="2nd Floor">2nd Floor</option>
+                        <option value="Cabin">Cabin</option>
                       </select>
                     </td>
+
                     <td className="px-3 py-2">
                       <input
                         type="text"
-                        value={formData.seat_no}
+                        value={formData.seat_no || ""}
                         onChange={(e) =>
                           setFormData({ ...formData, seat_no: e.target.value })
                         }
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="px-3 py-2">
                       <input
                         type="number"
-                        value={formData.package_months}
+                        value={formData.package_months || ""}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
@@ -162,30 +157,50 @@ export default function StudentsTable({ refreshData }) {
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="px-3 py-2">
                       <input
                         type="number"
-                        value={formData.fees}
+                        value={formData.fees || ""}
                         onChange={(e) =>
                           setFormData({ ...formData, fees: e.target.value })
                         }
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="px-3 py-2">
                       <input
                         type="number"
-                        value={formData.paid}
+                        value={formData.paid || ""}
                         onChange={(e) =>
                           setFormData({ ...formData, paid: e.target.value })
                         }
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
+                    {/* Payment Method Dropdown */}
+                    <td className="px-3 py-2">
+                      <select
+                        value={formData.payment_method || "Cash"}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            payment_method: e.target.value,
+                          })
+                        }
+                        className="border p-1 rounded w-full"
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Online">Online</option>
+                      </select>
+                    </td>
+
                     <td className="px-3 py-2">
                       <input
                         type="number"
-                        value={formData.pending_amount}
+                        value={formData.pending_amount || ""}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
@@ -195,6 +210,7 @@ export default function StudentsTable({ refreshData }) {
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="px-3 py-2">
                       <input
                         type="date"
@@ -212,6 +228,7 @@ export default function StudentsTable({ refreshData }) {
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="px-3 py-2 text-center space-x-2">
                       <button
                         onClick={handleSave}
@@ -229,6 +246,7 @@ export default function StudentsTable({ refreshData }) {
                   </>
                 ) : (
                   <>
+                    {/* Normal Row */}
                     <td className="px-3 py-2 font-medium">{student.name}</td>
                     <td className="px-3 py-2">{student.floor}</td>
                     <td className="px-3 py-2">{student.seat_no}</td>
@@ -237,14 +255,31 @@ export default function StudentsTable({ refreshData }) {
                     </td>
                     <td className="px-3 py-2">₹{student.fees}</td>
                     <td className="px-3 py-2">₹{student.paid}</td>
+
+                    <td className="px-3 py-2 font-medium text-gray-700">
+                      {student.payment_method === "Online" ? (
+                        <span className="flex items-center gap-1 text-blue-600">
+                          💳 Online
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-green-600">
+                          💵 Cash
+                        </span>
+                      )}
+                    </td>
+
                     <td className="px-3 py-2 text-red-600 font-medium">
                       ₹{student.pending_amount}
                     </td>
-                    <td className="px-3 py-2">
+
+                    <td className="px-3 py-2 text-orange-600 font-semibold">
                       {student.next_fees_date
-                        ? new Date(student.next_fees_date).toLocaleDateString()
+                        ? new Date(student.next_fees_date).toLocaleDateString(
+                            "en-GB"
+                          )
                         : "—"}
                     </td>
+
                     <td className="px-3 py-2 flex justify-center gap-2">
                       {selectedStudent === student.id ? (
                         <>
